@@ -149,6 +149,7 @@ defmodule Oracle do
   defp ensure_started(oracle) do
     GenServer.whereis(oracle)
     |> OptionEx.return()
+    |> OptionEx.map(fn _ -> oracle end)
     |> OptionEx.or_else_with(fn ->
       case DynamicSupervisor.start_child(
              Oracle.OracleSupervisor,

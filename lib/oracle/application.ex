@@ -10,7 +10,7 @@ defmodule Oracle.Application do
     children = [
       {DynamicSupervisor, strategy: :one_for_one, name: Oracle.OracleSupervisor},
       {DynamicSupervisor, strategy: :one_for_one, name: Oracle.VisionSupervisor},
-      {Registry, name: Oracle.VisionRegistry},
+      {Registry, name: Oracle.VisionRegistry, keys: :unique},
       {Task.Supervisor, name: Oracle.TaskSupervisor}
     ]
 

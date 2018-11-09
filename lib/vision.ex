@@ -122,7 +122,7 @@ defmodule Oracle.Vision do
   @spec make_name!(t) :: name
   def make_name!(vision) do
     OptionEx.to_result(vision.ref, :vision_ref_not_set)
-    |> ResultEx.map(fn ref -> {:via, Oracle.VisionRegistry, ref} end)
+    |> ResultEx.map(fn ref -> {:via, Registry, {Oracle.VisionRegistry, ref}} end)
     |> ResultEx.unwrap!()
   end
 
@@ -163,7 +163,7 @@ defmodule Oracle.Vision do
   def child_spec(%Oracle.Vision{} = vision) do
     %{
       id: vision.ref,
-      start: {GenServer, :start_link, [__MODULE__, [vision], [name: make_name!(vision)]]},
+      start: {GenServer, :start_link, [__MODULE__, vision, [name: make_name!(vision)]]},
       restart: :transient,
       shutdown: 5000,
       type: :worker
@@ -171,17 +171,14 @@ defmodule Oracle.Vision do
   end
 
   @impl GenServer
+  def init(%{oracle: {:some, oracle}, parent: {:some, parent}} = vision) do
+    Oracle.interprete(oracle, vision.key, {__MODULE__, :reveal})
+    |> ResultEx.map(fn _ -> {:ok, %{vision | parent_ref: {:some, Process.monitor(parent)}}} end)
+    |> ResultEx.or_else_with(fn error -> {:stop, error} end)
+  end
+
   def init(vision) do
-    vision.oracle
-    |> OptionEx.to_result({:error, :oracle_vision_oracle_nil})
-    |> ResultEx.bind(fn oracle ->
-      Oracle.interprete(oracle, vision.key, {__MODULE__, :reveal})
-      %{vision | parent_ref: {:some, Process.monitor(vision.parent)}}
-    end)
-    |> (fn
-          {:ok, vision} -> {:ok, vision}
-          {:error, error} -> {:stop, error}
-        end).()
+    {:stop, {:badarg, vision}}
   end
 
   @impl GenServer
