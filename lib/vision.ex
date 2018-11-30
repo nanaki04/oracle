@@ -32,7 +32,11 @@ defmodule Oracle.Vision do
             assigns: %{},
             revealer: :revealer_not_set
 
-  @spec interprete(t, revealer) :: {:ok, name} | {:error, reason}
+  @spec interprete(t | {:ok, t} | {:error, reason}, revealer) :: {:ok, name} | {:error, reason}
+  def interprete({:ok, vision}, revealer), do: interprete(vision, revealer)
+
+  def interprete({:error, reason}, _), do: {:error, reason}
+
   def interprete(vision, revealer) do
     vision = %{
       vision
@@ -63,29 +67,29 @@ defmodule Oracle.Vision do
   end
 
   @spec assign(t, atom, term) :: {:ok, t} | {:error, reason}
-  def assign(vision, key, data) do
-    %{vision | assigns: Map.put(vision.assigns, key, data)}
+  def assign(%{assigns: assigns, current_modifier: index} = vision, key, data) do
+    Map.update(assigns, index, Map.put(%{}, key, data), & Map.put(&1, key, data))
+    |> (&%{vision | assigns: &1}).()
     |> ResultEx.return()
   end
 
-  @spec fetch_assign(t, atom) :: {:ok, term} | {:error, reason}
+  @spec fetch_assign(t, atom) :: {:some, term} | :none
   def fetch_assign(%{assigns: assigns, current_modifier: index}, key) do
     get_in(assigns, [index, key])
     |> OptionEx.return()
-    |> OptionEx.to_result()
   end
 
   @spec update_assign(t, atom, term, (term -> term)) :: {:ok, t} | {:error, reason}
-  def update_assign(vision, key, {:ok, default}, updater),
-    do: update_assign(vision, key, default, updater)
-
-  def update_assign(_, _, {:error, reason}, _), do: {:error, reason}
+  #  def update_assign(vision, key, {:ok, default}, updater),
+  #    do: update_assign(vision, key, default, updater)
+  #
+  #  def update_assign(_, _, {:error, reason}, _), do: {:error, reason}
 
   def update_assign(%{assigns: assigns, current_modifier: index} = vision, key, default, updater) do
     %{
       vision
       | assigns:
-          Map.update(assigns, index, %{}, fn a ->
+          Map.update(assigns, index, Map.put(%{}, key, default), fn a ->
             Map.update(a, key, default, updater)
           end)
     }
@@ -126,25 +130,100 @@ defmodule Oracle.Vision do
     |> ResultEx.unwrap!()
   end
 
-  @spec map(t, (Oracle.state() -> {:ok, Oracle.state()} | {:error, reason})) ::
-          {:ok, t} | {:error, reason}
+  @spec map(
+          t | {:ok, t} | {:error, reason},
+          (Oracle.state() -> {:ok, Oracle.state()} | {:error, reason})
+        ) :: {:ok, t} | {:error, reason}
+  def map({:ok, vision}, fun), do: map(vision, fun)
+
+  def map({:error, reason}, _), do: {:error, reason}
+
   def map(vision, fun) do
     Oracle.Modifier.add(vision, {:map, fun})
   end
 
-  @spec filter(t, (Oracle.state() -> boolean)) :: {:ok, t} | {:error, reason}
-  def filter(vision, fun) do
-    Oracle.Modifier.add(vision, {:map, fun})
+  @spec reduce(
+          t | {:ok, t} | {:error, reason},
+          (Oracle.state(), term -> {:ok, term} | {:error, reason})
+        ) :: {:ok, t} | {:error, reason}
+  def reduce({:ok, vision}, fun), do: reduce(vision, fun)
+
+  def reduce({:error, reason}, _), do: {:error, reason}
+
+  def reduce(vision, fun) do
+    Oracle.Modifier.add(vision, {:reduce, fun})
   end
 
-  @spec bind(t, (term -> t)) :: {:ok, t} | {:error, reason}
+  @spec reduce(
+          t | {:ok, t} | {:error, reason},
+          term,
+          (Oracle.state(), term -> {:ok, term} | {:error, reason})
+        ) :: {:ok, t} | {:error, reason}
+  def reduce({:ok, vision}, default, fun), do: reduce(vision, default, fun)
+
+  def reduce({:error, reason}, _, _), do: {:error, reason}
+
+  def reduce(vision, default, fun) do
+    Oracle.Modifier.add(vision, {:reduce, {default, fun}})
+  end
+
+  @spec filter(t | {:ok, t} | {:error, reason}, (Oracle.state() -> boolean)) ::
+          {:ok, t} | {:error, reason}
+  def filter({:ok, vision}, fun), do: filter(vision, fun)
+
+  def filter({:error, reason}, _), do: {:error, reason}
+
+  def filter(vision, fun) do
+    Oracle.Modifier.add(vision, {:filter, fun})
+  end
+
+  @spec bind(t | {:ok, t} | {:error, reason}, (term -> t)) :: {:ok, t} | {:error, reason}
+  def bind({:ok, vision}, fun), do: bind(vision, fun)
+
+  def bind({:error, reason}, _), do: {:error, reason}
+
   def bind(vision, fun) do
     Oracle.Modifier.add(vision, {:bind, fun})
   end
 
-  @spec count(t) :: {:ok, t} | {:error, reason}
+  @spec count(t | {:ok, t} | {:error, reason}) :: {:ok, t} | {:error, reason}
+  def count({:ok, vision}), do: count(vision)
+
+  def count({:error, reason}), do: {:error, reason}
+
   def count(vision) do
     Oracle.Modifier.add(vision, :count)
+  end
+
+  @spec interval(t | {:ok, t} | {:error, reason}, number) :: {:ok, t} | {:error, reason}
+  def interval(vision, interval_ms), do: interval(vision, interval_ms, :infinite)
+
+  @spec interval(t | {:ok, t} | {:error, reason}, number, number | :infinite) ::
+          {:ok, t} | {:error, reason}
+  def interval({:ok, vision}, interval_ms, limit), do: interval(vision, interval_ms, limit)
+
+  def interval({:error, reason}, _, _), do: {:error, reason}
+
+  def interval(vision, interval_ms, limit) do
+    Oracle.Modifier.add(vision, {:interval, {interval_ms, limit}})
+  end
+
+  @spec distinct(t | {:ok, t} | {:error, reason}) :: {:ok, t} | {:error, reason}
+  def distinct({:ok, vision}), do: distinct(vision)
+
+  def distinct({:error, reason}), do: {:error, reason}
+
+  def distinct(vision) do
+    Oracle.Modifier.add(vision, :distinct)
+  end
+
+  @spec track(t | {:ok, t} | {:error, reason}) :: {:ok, t} | {:error, reason}
+  def track({:ok, vision}), do: track(vision)
+
+  def track({:error, reason}), do: {:error, reason}
+
+  def track(vision) do
+    Oracle.Modifier.add(vision, :track)
   end
 
   @spec modify(t, Oracle.Modifier.t() | term) :: {:ok, t} | {:error, reason}
@@ -192,10 +271,11 @@ defmodule Oracle.Vision do
         {:error, :revealer_not_set}
 
       %{revealer: revealer} = vision when is_atom(revealer) ->
-        case send(vision.parent, {revealer, vision.value}) do
-          :ok -> {:ok, vision}
-          error -> {:error, error}
-        end
+        OptionEx.map(vision.parent, fn parent ->
+          send(parent, {revealer, vision.value})
+          vision
+        end)
+        |> OptionEx.to_result
 
       vision ->
         # TODO error handling
@@ -211,22 +291,25 @@ defmodule Oracle.Vision do
     composition =
       vision_result
       |> ResultEx.map(& &1.modifiers)
-      |> ResultEx.map(&Enum.reverse/1)
       |> ResultEx.map(fn modifiers ->
-        Enum.reduce(modifiers, ResultEx.bind(revealer), fn
+        Enum.reduce(modifiers, revealer, fn
           modifier, prev ->
-            ResultEx.bind(fn vision ->
+            fn vision ->
               Oracle.Modifier.modify(vision, modifier, prev)
               |> ResultEx.map(&increment_current_modifier/1)
-            end)
+            end
         end)
       end)
       |> ResultEx.or_else_with(fn error -> fn _ -> {:error, error} end end)
 
-    result = composition.(vision_result)
+    result = ResultEx.bind(vision_result, composition)
 
     ResultEx.or_else(result, vision)
     |> (&{:reply, result, &1}).()
+  end
+
+  def handle_call(:fetch, _, vision) do
+    {:reply, vision, vision}
   end
 
   @impl GenServer

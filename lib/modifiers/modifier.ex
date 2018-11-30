@@ -11,6 +11,9 @@ defmodule Oracle.Modifier do
           | {:reduce, term,
              (Oracle.state(), accumulator -> {:ok, Oracle.Vision.t()} | {:error, reason})}
           | :count
+          | :track
+          # To account for user defined custom modifiers
+          | {atom, term}
 
   @callback init(Oracle.Vision.t(), t) :: {:ok, Oracle.Vision.t()} | {:error, reason}
   @callback modify(Oracle.Vision.t(), t, next) :: {:ok, Oracle.Vision.t()} | {:error, reason}
